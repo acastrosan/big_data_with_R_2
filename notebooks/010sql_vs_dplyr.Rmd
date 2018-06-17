@@ -1,0 +1,276 @@
+--
+title: "SQL vs. dplyr"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+## Getting data
+
+Download data `database.sqlite` from  <https://www.kaggle.com/hugomathien/soccer> into directory 
+`football_data` and uznip it.
+
+## Access to data base
+
+```{r}
+DATA_DIR <- file.path("..", "football_data")
+library(RSQLite)
+sql_con <- dbConnect(
+  SQLite(), 
+  dbname=file.path(DATA_DIR, "database.sqlite")
+)
+dbListTables(sql_con)
+```
+
+Example of query:
+```{r}
+dbGetQuery(sql_con, "
+SELECT *
+FROM Player
+LIMIT 6
+")
+```
+
+## dplyr 
+
+We will show how to work with dplyr with remote storage. This will connect data base with dplyr.
+```{r}
+library('dplyr')
+player_db <- tbl(sql_con, "Player")
+
+## players <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Player"))
+```
+
+### Pipes
+
+First let us introduce pipes.
+```{r}
+print("Hello world!")
+"Hello world!" %>%
+  print
+```
+
+```{r}
+2 + 3 %>%
+  print
+
+3 %>%
+  {2 + .} %>%
+  print
+```
+
+## SELECT ~ select
+
+```{r}
+"SELECT player_name
+,   birthday
+FROM Player
+LIMIT 10" %>%
+  dbGetQuery(sql_con, .)
+```
+
+```{r}
+player_db %>%
+  select(player_name, birthday) %>%
+  head(10)
+```
+
+## WHERE ~ filter
+
+```{r}
+player_db %>%
+  filter(birthday >= '1998') %>%
+  head(5)
+```
+
+```{r}
+"SELECT *
+FROM Player
+WHERE birthday >= '1998'
+LIMIT 5" %>%
+  dbGetQuery(sql_con, .)
+```
+
+## ORDER ~ arrange
+
+```{r}
+player_db %>%
+  arrange(birthday) %>%
+  head(5)
+```
+
+```{r}
+"SELECT *
+FROM Player
+ORDER BY birthday 
+LIMIT 5" %>%
+  dbGetQuery(sql_con, .)
+```
+
+```{r}
+player_db %>%
+  arrange(desc(birthday)) %>%
+  head(5)
+```
+
+```{r}
+"SELECT *
+FROM Player
+ORDER BY birthday DESC
+LIMIT 5" %>%
+  dbGetQuery(sql_con, .)
+```
+
+## aggregators ~ summarise
+
+```{r}
+player_db %>%
+  summarise(
+    mean_weight=mean(weight, na.rm=TRUE),
+    sd_weight=sd(weight, na.rm=TRUE),
+    sum_weight=sum(weight, na.rm=TRUE),
+    n_samples=n())
+```
+
+```{r}
+"SELECT AVG(weight) AS mean_weight
+,   STDEV(weight) AS sd_weight
+,   SUM(weight) AS sum_weight
+,   COUNT(1) AS n_samples
+FROM Player
+" %>%
+  dbGetQuery(sql_con, .)
+```
+
+## mutate
+
+```{r}
+player_db %>%
+  mutate(weight_kg = weight*0.45359237) %>%
+  head(3) %>%
+  data.frame
+```
+
+```{r}
+"SELECT *
+,   weight*0.45359237 AS weight_kg
+FROM Player
+LIMIT 3" %>%
+  dbGetQuery(sql_con, .)
+```
+
+Later we will see `LATERAL VIEW` with Hive.
+
+## GROUP BY
+
+Here we use SQLite date functions
+<https://www.sqlite.org/lang_datefunc.html>
+
+```{r}
+library('ggplot2')
+"SELECT CAST(STRFTIME('%Y', birthday) AS INT) AS year
+,   AVG(height) AS height
+FROM Player
+GROUP BY CAST(SUBSTR(birthday, 1, 4) AS INT) " %>%
+  dbGetQuery(sql_con, .) %>%
+  ggplot(., aes(year, height)) +
+  geom_line(colour="darkorange") +
+  theme_minimal()
+```
+
+```{r}
+player_db %>%
+  mutate(year=as.numeric(strftime('%Y', birthday))) %>%
+  group_by(year) %>%
+  summarise(height=mean(height, na.rm=TRUE)) %>%
+  data.frame %>%
+  ggplot(aes(year, height)) +
+  geom_line(colour="darkorange") +
+  theme_minimal()
+```
+
+```{r}
+player_db %>%
+  mutate(year=as.numeric(strftime('%Y', birthday))) %>%
+  group_by(year) %>%
+  summarise(height=mean(height, na.rm=TRUE)) %>%
+  show_query
+```
+
+## Joins
+
+
+...
+
+=======
+
+Exercise
+
+* Translate from SQL to R (with dplyr) or from R to SQL
+```{r}
+"SELECT COUNT(1) AS n
+FROM Match" %>%
+  dbGetQuery(sql_con, .)
+```
+
+```{r}
+"SELECT *
+FROM Match
+LIMIT 6 " %>%
+  dbGetQuery(sql_con, .)
+```
+
+```{r}
+"SELECT country_id
+,   COUNT(1) AS n
+FROM Match
+GROUP BY country_id
+ORDER BY n DESC" %>%
+  dbGetQuery(sql_con, .)
+```
+
+```{r}
+player_db %>% colnames
+matches <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Match"))
+teams <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Team"))
+```
+
+
+```{r}
+team %>% colnames
+games %>%
+  left_join(countries, by=c("country_id" = "id")) %>%
+  select(name, home_team_api_id) %>%
+  group_by(name) %>%
+  summarise(teams = n_distinct(home_team_api_id)) %>%
+  arrange(desc(teams))
+```
+
+```{r}
+dbGetQuery(sql_con, "
+SELECT *
+FROM Player_Attributes
+LIMIT 6
+")
+
+```
+
+* From where do players with higest accuracy come from?
+
+* Add team name and translate to dplyr
+
+```{r}
+dbGetQuery(sql_con, "
+SELECT stage, home_team_api_id, home_team_goal
+FROM Match
+WHERE country_id = 1
+AND season = '2008/2009'
+ORDER BY stage
+")
+```
+
+## Close connection
+
+```{r}
+dbDisconnect(sql_con)
+```
