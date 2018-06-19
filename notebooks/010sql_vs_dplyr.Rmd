@@ -1,5 +1,5 @@
---
-title: "SQL vs. dplyr"
+---
+title: "SQL vs. dbplyr"
 output:
   html_document: default
   html_notebook: default
@@ -7,7 +7,7 @@ output:
 
 ## Getting data
 
-Download data `database.sqlite` from  <https://www.kaggle.com/hugomathien/soccer> into directory 
+Download data `database.sqlite.zip` from  <https://www.kaggle.com/hugomathien/soccer> into directory 
 `football_data` and uznip it.
 
 ## Access to data base
@@ -31,14 +31,21 @@ LIMIT 6
 ")
 ```
 
+sql chunk:
+```{sql, connection=sql_con}
+SELECT *
+FROM Player_Attributes
+LIMIT 6
+```
+
 ## dplyr 
 
 We will show how to work with dplyr with remote storage. This will connect data base with dplyr.
-```{r}
+```{r, results=FALSE, echo=FALSE}
 library('dplyr')
 player_db <- tbl(sql_con, "Player")
-
-## players <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Player"))
+player_attributes_db <- tbl(sql_con, "Player_Attributes")
+match_db <- tbl(sql_con, "Match")
 ```
 
 ### Pipes
@@ -59,6 +66,17 @@ print("Hello world!")
   print
 ```
 
+## Show query
+
+```{r}
+player_db %>%
+  mutate(year=as.numeric(strftime('%Y', birthday))) %>%
+  group_by(year) %>%
+  summarise(height=mean(height, na.rm=TRUE)) %>%
+  show_query
+```
+
+
 ## SELECT ~ select
 
 ```{r}
@@ -77,18 +95,17 @@ player_db %>%
 
 ## WHERE ~ filter
 
+```{sql where_sql, connection=sql_con}
+SELECT *
+FROM Player
+WHERE birthday >= '1998'
+LIMIT 5
+```
+
 ```{r}
 player_db %>%
   filter(birthday >= '1998') %>%
   head(5)
-```
-
-```{r}
-"SELECT *
-FROM Player
-WHERE birthday >= '1998'
-LIMIT 5" %>%
-  dbGetQuery(sql_con, .)
 ```
 
 ## ORDER ~ arrange
@@ -189,18 +206,76 @@ player_db %>%
   theme_minimal()
 ```
 
-```{r}
-player_db %>%
-  mutate(year=as.numeric(strftime('%Y', birthday))) %>%
-  group_by(year) %>%
-  summarise(height=mean(height, na.rm=TRUE)) %>%
-  show_query
-```
+
 
 ## Joins
 
-
+```{sql connection=sql_con}
+SELECT Player.player_name
+, pa.max_rating 
+FROM Player
+LEFT JOIN (
+  SELECT player_api_id
+  ,  MAX(overall_rating) AS max_rating
+  FROM Player_Attributes
+  GROUP BY player_api_id) pa
+ON Player.player_api_id = pa.player_api_id
+ORDER BY pa.max_rating DESC
+LIMIT 10
+```
 ...
+
+```{r}
+player_db <- tbl(sql_con, "Player")
+player_attributes_db <- tbl(sql_con, "Player_Attributes")
+
+player_db %>%
+  left_join(
+    {player_attributes_db %>% 
+      group_by(player_api_id) %>%
+      summarise(max_rating=max(overall_rating, na.rm=TRUE))}, 
+    by='player_api_id') %>%
+  arrange(-max_rating) %>%
+  select(player_name, max_rating) %>%
+  head(10)
+```
+
+## UNION All ~ union_all
+
+```{sql, connection=sql_con}
+SELECT team_api_id
+,   SUM(goal) AS goals
+FROM (
+    SELECT home_team_api_id AS team_api_id
+    ,   home_team_goal AS goal
+    FROM Match
+    WHERE country_id = 1
+    AND league_id = 1    
+    AND season = '2008/2009'
+    UNION ALL 
+    SELECT away_team_api_id AS team_api_id
+    ,   away_team_goal AS goal
+    FROM Match
+    WHERE country_id = 1
+    AND league_id = 1    
+    AND season = '2008/2009')
+GROUP BY 1
+ORDER BY 2 DESC
+```
+
+```{r}
+union_all(
+{match_db %>%
+  filter(country_id == 1, league_id == 1, season == '2008/2009') %>%
+  select(team_api_id = home_team_api_id, team_goal = home_team_goal)},
+{match_db %>%
+  filter(country_id == 1, league_id == 1, season == '2008/2009') %>%
+  select(team_api_id = away_team_api_id, team_goal = away_team_goal)}) %>%
+  group_by(team_api_id) %>%
+  summarise(goals=sum(team_goal, na.rm=TRUE)) %>%
+  arrange(desc(goals))
+```
+
 
 =======
 
@@ -213,12 +288,6 @@ FROM Match" %>%
   dbGetQuery(sql_con, .)
 ```
 
-```{r}
-"SELECT *
-FROM Match
-LIMIT 6 " %>%
-  dbGetQuery(sql_con, .)
-```
 
 ```{r}
 "SELECT country_id
@@ -230,47 +299,31 @@ ORDER BY n DESC" %>%
 ```
 
 ```{r}
-player_db %>% colnames
-matches <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Match"))
+match_db <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Match"))
+country_db <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Country"))
 teams <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Team"))
 ```
 
 
 ```{r}
-team %>% colnames
-games %>%
-  left_join(countries, by=c("country_id" = "id")) %>%
-  select(name, home_team_api_id) %>%
+match_db %>%
+  left_join(country_db, by=c("country_id" = "id")) %>%
+  select(name, country_id, home_team_api_id) %>%
   group_by(name) %>%
   summarise(teams = n_distinct(home_team_api_id)) %>%
   arrange(desc(teams))
 ```
 
-```{r}
-dbGetQuery(sql_con, "
-SELECT *
-FROM Player_Attributes
-LIMIT 6
-")
+* List 5 players and their highest rating that had the lowest potential ever.
 
-```
+* Which team has the higest average of goles when playing home in season 2008/2009 in Poland?
 
-* From where do players with higest accuracy come from?
-
-* Add team name and translate to dplyr
-
-```{r}
-dbGetQuery(sql_con, "
-SELECT stage, home_team_api_id, home_team_goal
-FROM Match
-WHERE country_id = 1
-AND season = '2008/2009'
-ORDER BY stage
-")
-```
+* Which team and from which country and which season scored the higest number of goals?
 
 ## Close connection
 
 ```{r}
 dbDisconnect(sql_con)
 ```
+
+https://db.rstudio.com/dplyr/
