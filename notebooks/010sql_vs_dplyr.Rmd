@@ -137,6 +137,22 @@ ORDER BY birthday DESC
 LIMIT 5" %>%
   dbGetQuery(sql_con, .)
 ```
+## AS ~ mutate
+
+```{r}
+player_db %>%
+  mutate(weight_kg = weight*0.45359237) %>%
+  head(3) %>%
+  data.frame
+```
+
+```{r}
+"SELECT *
+,   weight*0.45359237 AS weight_kg
+FROM Player
+LIMIT 3" %>%
+  dbGetQuery(sql_con, .)
+```
 
 ## aggregators ~ summarise
 
@@ -159,26 +175,7 @@ FROM Player
   dbGetQuery(sql_con, .)
 ```
 
-## mutate
-
-```{r}
-player_db %>%
-  mutate(weight_kg = weight*0.45359237) %>%
-  head(3) %>%
-  data.frame
-```
-
-```{r}
-"SELECT *
-,   weight*0.45359237 AS weight_kg
-FROM Player
-LIMIT 3" %>%
-  dbGetQuery(sql_con, .)
-```
-
-Later we will see `LATERAL VIEW` with Hive.
-
-## GROUP BY
+## GROUP BY ~ group_by
 
 Here we use SQLite date functions
 <https://www.sqlite.org/lang_datefunc.html>
