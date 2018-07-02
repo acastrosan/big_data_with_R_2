@@ -13,22 +13,90 @@ Download all datasets from  <https://www.kaggle.com/c/competitive-data-science-p
 
 
 ```{r}
-library(magrittr)
-spark_path <- '/Users/bartek/programs/spark-2.3.0-bin-hadoop2.7'
-if (nchar(Sys.getenv("SPARK_HOME")) < 1) {
-  Sys.setenv(SPARK_HOME = spark_path)
-}
-library(SparkR, lib.loc = c(file.path(Sys.getenv("SPARK_HOME"), "R", "lib")))
-sparkR.session(master = "local[*]", sparkConfig = list(spark.driver.memory = "2g"))
+
+library(sparklyr)
+library(dplyr)
+sc <- spark_connect(master = "local")
 ```
 
 ```{r}
-sales_sdf <- read.df("../future_sales_data/sales_train.csv.gz", "csv", header = "true", inferSchema = "true")
+sales_sdf <- spark_read_csv(sc, "sales", "../future_sales_data/sales_train.csv.gz")
+
 sales_sdf %>%
+  mutate(dt=to_timestamp(unix_timestamp(date, 'dd.MM.yyyy'))) %>%
+  mutate(year=year(dt), month=month(dt)) %>%
+  select(-dt) ->
+  sales_sdf
+
+sales_sdf %>%
+  spark_write_parquet(
+    "../future_sales_data/sales_train.parquet",
+    partition_by = c("shop_id", "year", "month"))
+
+sales_sdf %>% count
+```
+
+```{r}
+sales_sdf <- spark_read_csv(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\=0/year\\=2013/month\\=1/")
+```
+
+
+## Parquet and buckets
+
+```{r}
+mtcars_tbl <- copy_to(sc, mtcars)
+
+# transform our data set, and then partition into 'training', 'test'
+partitions <- mtcars_tbl %>%
+  filter(hp >= 100) %>%
+  mutate(cyl8 = cyl == 8) %>%
+  sdf_partition(training = 0.5, test = 0.5, seed = 1099)
+
+
+shops <-
+  sales_sdf %>%
+  select('shop_id') %>%
+  distinct %>%
+  collect
+
+sales_sdf %>%
+  withColumn("dt", to_timestamp(unix_timestamp(.$date, 'dd.MM.yyyy'))) ->
+  sales_sdf
+
+sales_sdf %>%
+  select(alias(year(.$dt), "shop_id")) %>%
+  distinct %>%
+  collect ->
+  years
+
+```
+
+
+```{r}
+distinct_dates <-
+  sales_sdf %>%
+  select(alias(to_timestamp(unix_timestamp(.$date, 'dd.MM.yyyy')), "dt")) %>%
+  distinct
+
+distinct_dates %>%
+  select(
+    alias(year(.$dt), 'year'),
+    alias(month(.$dt), 'month'),
+    alias(dayofmonth(.$dt), 'day')
+  ) %>%
+  collect ->
+  dates_df
+
+dates_df %>%
   head
 ```
 
-## Parquet and buckets
+```{r}
+get_dates <- function(row) {
+  print(row)
+  
+}
+```
 
 ```{r}
 separated_date <-

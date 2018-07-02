@@ -1,0 +1,26 @@
+---
+title: "Plan of the course"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+## 0. Introduction to Data Science
+
+## 1. Introduction to git
+
+## 2. SQL vs. dplyr
+
+## 3. Templating with whisker
+
+## 4. SQL vs. RSpark
+
+## 5. Storage and introduction to ETL
+
+## 6. Querying with Spark in R (Scala/Pyhton)
+
+## 7. Machine learning: Predicting demand
+
+## 8. Recommender System with ALS
+
+## 9. Project

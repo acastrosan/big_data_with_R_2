@@ -166,9 +166,13 @@ GROUP BY date
 
 ```{r}
 sales_sdf %>%
-  groupBy(sales_sdf$date) %>%
+  withColumn("dt", unix_timestamp(.$date, 'dd.MM.yyyy')) %>%
+  groupBy(.$dt) %>%
   summarize(items_sold=sum(sales_sdf$item_cnt_day)) %>%
-  head
+  collect %>%
+  ggplot(., aes(dt, items_sold)) +
+  geom_line(colour="darkorange") +
+  theme_minimal()
 ```
 
 
